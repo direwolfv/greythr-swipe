@@ -1,0 +1,40 @@
+# gitleaks config for a public repo.
+#
+# The default ruleset catches API keys and tokens, none of which this project has — its
+# credentials live in the macOS Keychain and never touch a file. The leak this repo actually
+# had was the employer's greytHR tenant hostname hardcoded in index.js and README.md, which
+# stock gitleaks does not flag. That rule is the whole point of this file.
+
+title = "greythr-swipe"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "greythr-tenant"
+description = "Employer's greytHR tenant hostname — use yourcompany.greythr.com instead"
+regex = '''[a-z0-9][a-z0-9-]*\.greythr\.com'''
+tags = ["pii", "employer"]
+
+  [[rules.allowlists]]
+  description = "The documentation placeholder is the one spelling that is allowed"
+  regexes = ['''yourcompany\.greythr\.com''']
+
+[[rules]]
+id = "greythr-home-path"
+description = "A real home directory leaking through logs or pasted output"
+regex = '''/Users/[a-z0-9._-]+/Library/Application Support/greytHR'''
+tags = ["pii"]
+
+  [[rules.allowlists]]
+  description = "Docs use a literal ~ rather than an expanded path"
+  regexes = ['''~/Library/Application Support/greytHR''']
+
+[allowlist]
+description = "Build output and dependencies are not ours to scan"
+paths = [
+  '''node_modules/''',
+  '''app/greytHR\.app/''',
+  '''package-lock\.json''',
+  '''app/greytHR\.icns''',
+]

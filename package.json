@@ -1,0 +1,26 @@
+{
+  "name": "greythr-swipe",
+  "version": "1.0.0",
+  "description": "Auto check-in / check-out for greytHR",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node decide.test.js",
+    "typecheck": "tsc --noEmit",
+    "scan": "gitleaks detect --no-git --redact -v --report-format json --report-path /dev/null",
+    "scan:history": "gitleaks detect --redact -v --report-format json --report-path /dev/null"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  }
+}

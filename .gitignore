@@ -1,0 +1,6 @@
+node_modules/
+app/greytHR.app/
+config.json
+logs/
+.DS_Store
+gitleaks-report.json
