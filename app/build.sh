@@ -11,10 +11,7 @@ PROJECT="$(cd .. && pwd)"
 APP="greytHR.app"
 DATA="$HOME/Library/Application Support/greytHR"
 
-NODE="$(command -v node || true)"
-[ -x "$NODE" ] || { echo "node not found on PATH — run this from a shell where 'node -v' works."; exit 1; }
 [ -d "$PROJECT/node_modules/playwright-core" ] || { echo "run 'npm install' in $PROJECT first"; exit 1; }
-echo "node: $NODE"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -30,7 +27,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST_EOF
   <key>CFBundleExecutable</key><string>greytHR</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>greytHR</string>
-  <key>CFBundleShortVersionString</key><string>1.1.0</string>
+  <key>CFBundleShortVersionString</key><string>1.2.0</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>CFBundleURLTypes</key>
@@ -81,7 +78,12 @@ cp -R "$PROJECT/node_modules" "$APP/Contents/Resources/"
 # pulls devDependencies (typescript, @types) — copying those wholesale put 34 MB of
 # compiler and .d.ts files inside the app. Keep exactly what package.json declares as
 # "dependencies"; anything else here is build-time tooling.
-KEEP=$(cd "$PROJECT" && node -p "Object.keys(require('./package.json').dependencies).join('|')")
+# Read the keys with sed, not node: nothing else in this build needs node, and the Homebrew
+# formula deliberately does not depend on it. "devDependencies" cannot match — the pattern
+# requires the quote immediately before the d.
+KEEP=$(sed -n '/"dependencies"[[:space:]]*:/,/}/p' "$PROJECT/package.json" \
+       | sed -n 's/.*"\([^"]*\)"[[:space:]]*:[[:space:]]*".*/\1/p' | tr '\n' '|' | sed 's/|$//')
+[ -n "$KEEP" ] || { echo "could not read dependencies from package.json"; exit 1; }
 find "$APP/Contents/Resources/node_modules" -maxdepth 1 -mindepth 1 \
   | grep -Ev "/(${KEEP}|\.package-lock\.json)$" | xargs -r rm -rf
 
