@@ -81,6 +81,10 @@ tail -f ~/Library/Application\ Support/greytHR/logs/checkout.log
 
 The app is ad-hoc signed, so the first launch may need right-click → **Open**.
 
+It lives in the menu bar only — no Dock icon, no Launchpad entry, and Finder shows the
+`/Applications` alias with an arrow. That is the symlink doing its job: `brew upgrade` moves
+the keg and the link follows.
+
 ## Uninstall
 
 ```sh
