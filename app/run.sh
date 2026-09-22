@@ -65,4 +65,8 @@ if [ -z "$NODE" ]; then
 fi
 rm -f "$STAMP"   # node is back; the next outage notifies immediately
 
+# The bundled LaunchAgent has no StandardOutPath: it would need an absolute path baked in at
+# build time, and the build does not know the installing user's home. Redirect here instead.
+mkdir -p "$DATA/logs"
+exec >>"$DATA/logs/launchd.out.log" 2>&1
 exec "$NODE" "$HERE/index.js" "$@"

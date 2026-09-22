@@ -35,9 +35,8 @@ ln -sfn "$(brew --prefix greythr-swipe)/greytHR.app" /Applications/greytHR.app
 open /Applications/greytHR.app
 ```
 
-The link is manual because Homebrew sandboxes post-install: a formula cannot write outside
-its own prefix. Only a cask can place an app in `/Applications`, and a cask would need a paid
-Developer ID to get past Gatekeeper.
+The symlink is load-bearing: `SMAppService` registers the timer only for an app reachable
+under `/Applications`, and Homebrew cannot create the link from its post-install sandbox.
 
 First launch installs the LaunchAgent. Then **Settings…** → **Account** for the greytHR URL,
 username and password, and **Schedule** for your times.

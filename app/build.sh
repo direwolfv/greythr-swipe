@@ -30,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST_EOF
   <key>CFBundleExecutable</key><string>greytHR</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>greytHR</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleShortVersionString</key><string>1.1.0</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>CFBundleURLTypes</key>
@@ -57,6 +57,24 @@ printf '{"type":"module"}\n' > "$APP/Contents/Resources/package.json"
 cp greytHR.icns "$APP/Contents/Resources/"
 cp run.sh "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/run.sh"
+
+# The LaunchAgent ships inside the bundle and is registered with SMAppService, not written
+# to ~/Library/LaunchAgents. A loose plist runs /bin/sh, so macOS attributes the background
+# item to "sh" in Login Items; registered this way it is attributed to this app. BundleProgram
+# is relative to the bundle, which also means no absolute path to bake in at build time.
+mkdir -p "$APP/Contents/Library/LaunchAgents"
+cat > "$APP/Contents/Library/LaunchAgents/com.direwolfv.greythr-swipe.plist" <<AGENT_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.direwolfv.greythr-swipe</string>
+  <key>BundleProgram</key><string>Contents/Resources/run.sh</string>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>
+AGENT_EOF
 cp -R "$PROJECT/node_modules" "$APP/Contents/Resources/"
 
 # Ship runtime dependencies only. A source install runs plain `npm install`, which also

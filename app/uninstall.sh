@@ -15,11 +15,18 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DATA="$HOME/Library/Application Support/greytHR"
 APP=/Applications/greytHR.app
 
+# The timer is a Login Item registered by the app (SMAppService), so only the app can take
+# it out of Login Items & Extensions. Ask it to, before anything removes the bundle.
+if [ -e "$APP" ]; then
+  /usr/bin/open -g "greythr://uninstall" 2>/dev/null || true
+  sleep 2
+fi
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 echo "stopped the 5-minute timer"
 
 pkill -x greytHR 2>/dev/null || true
 
+# Older versions wrote their own plist here instead of registering one.
 if [ -f "$PLIST" ]; then
   rm -f "$PLIST"
   echo "removed $PLIST"

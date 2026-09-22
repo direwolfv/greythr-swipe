@@ -2,6 +2,7 @@
 // It owns credentials (Keychain), the two times (config.json) and the on/off switch
 // (launchd). It is NOT the engine: quit it and the automation keeps running.
 
+import ServiceManagement
 import SwiftUI
 import AppKit
 import Combine
@@ -13,19 +14,6 @@ import UserNotifications
 let info = Bundle.main.infoDictionary ?? [:]
 let scriptURL = Bundle.main.resourceURL?.appendingPathComponent("run.sh")
     ?? URL(fileURLWithPath: "run.sh")
-
-/// Path to the launcher to bake into the LaunchAgent. Bundle URLs come back with symlinks resolved, so a
-/// Homebrew install would resolve /Applications/greytHR.app -> opt/greythr ->
-/// Cellar/greythr/<version> and pin the plist to a version that `brew upgrade` deletes.
-/// When /Applications/greytHR.app is this same bundle, use that stable path instead.
-let workerPath: String = {
-    let linked = "/Applications/greytHR.app"
-    let resolved = URL(fileURLWithPath: linked).resolvingSymlinksInPath().path
-    if resolved == Bundle.main.bundleURL.resolvingSymlinksInPath().path {
-        return linked + "/Contents/Resources/run.sh"
-    }
-    return scriptURL.path
-}()
 
 let dataDir: URL = {
     let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -39,7 +27,13 @@ let configURL = dataDir.appendingPathComponent("config.json")
 let stateURL = dataDir.appendingPathComponent("logs/state.json")
 let logURL = dataDir.appendingPathComponent("logs/checkout.log")
 let launchdLabel = "com.direwolfv.greythr-swipe"
-let launchAgentURL = URL(fileURLWithPath: NSHomeDirectory())
+/// Registered from inside the bundle (Contents/Library/LaunchAgents). A loose plist in
+/// ~/Library/LaunchAgents runs /bin/sh, so macOS shows the background item as "sh"; this way
+/// it is attributed to this app, icon and all, and `brew upgrade` cannot orphan it.
+let agentService = SMAppService.agent(plistName: "\(launchdLabel).plist")
+
+/// Where earlier versions wrote the agent by hand. Removed on launch so the job cannot run twice.
+let legacyAgentURL = URL(fileURLWithPath: NSHomeDirectory())
     .appendingPathComponent("Library/LaunchAgents/\(launchdLabel).plist")
 
 // ---------- tiny shell helper ----------
@@ -227,8 +221,7 @@ final class Model: ObservableObject {
             username = keychainGet("greythr-username"); savedUsername = username
             password = keychainGet("greythr-password"); savedPassword = password
         }
-        automationOn = sh("/bin/launchctl",
-                          ["print", "gui/\(getuid())/\(launchdLabel)"]).ok
+        automationOn = agentService.status == .enabled
     }
 
     func saveConfig() {
@@ -249,43 +242,13 @@ final class Model: ObservableObject {
         message = ok ? "Saved." : "Could not write to the Keychain."
     }
 
-    /// Write (or refresh) the LaunchAgent so it points at this copy of the app. Returns
-    /// true if the file changed, meaning launchd needs to be told to reload it.
-    @discardableResult
-    func installLaunchAgent() -> Bool {
-        let plist = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-          <key>Label</key><string>\(launchdLabel)</string>
-          <key>ProgramArguments</key>
-          <array>
-            <string>/bin/sh</string>
-            <string>\(workerPath)</string>
-          </array>
-          <key>StartInterval</key><integer>300</integer>
-          <key>RunAtLoad</key><true/>
-          <key>StandardOutPath</key><string>\(dataDir.path)/logs/launchd.out.log</string>
-          <key>StandardErrPath</key><string>\(dataDir.path)/logs/launchd.err.log</string>
-        </dict>
-        </plist>
-        """
-        let existing = try? String(contentsOf: launchAgentURL, encoding: .utf8)
-        guard existing != plist else { return false }
-        try? FileManager.default.createDirectory(
-            at: launchAgentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? plist.write(to: launchAgentURL, atomically: true, encoding: .utf8)
-        return true
-    }
-
     func setAutomation(_ on: Bool) {
-        installLaunchAgent()
-        let r = on
-            ? sh("/bin/launchctl", ["bootstrap", "gui/\(getuid())", launchAgentURL.path])
-            : sh("/bin/launchctl", ["bootout", "gui/\(getuid())/\(launchdLabel)"])
-        if !r.ok && !r.out.isEmpty { message = r.out }
-        automationOn = sh("/bin/launchctl", ["print", "gui/\(getuid())/\(launchdLabel)"]).ok
+        do {
+            if on { try agentService.register() } else { try agentService.unregister() }
+        } catch {
+            message = error.localizedDescription
+        }
+        automationOn = agentService.status == .enabled
     }
 
     /// Run the worker now. `action` is "--in" or "--out".
@@ -577,17 +540,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        if Model.shared.installLaunchAgent() {
+        // Older builds wrote their own plist; leaving it would run the worker twice.
+        if FileManager.default.fileExists(atPath: legacyAgentURL.path) {
             sh("/bin/launchctl", ["bootout", "gui/\(getuid())/\(launchdLabel)"])
-            sh("/bin/launchctl", ["bootstrap", "gui/\(getuid())", launchAgentURL.path])
-            Model.shared.reload()
+            try? FileManager.default.removeItem(at: legacyAgentURL)
         }
+        // Registering an enabled service again is how you re-point it at a moved bundle,
+        // which is what `brew upgrade` does. A failure just leaves automation off, and the
+        // Settings window already says so.
+        if agentService.status != .enabled { try? agentService.register() }
+        Model.shared.reload()
         showSettings()
     }
 
     // The worker posts notifications through us (open -g "greythr://notify?...") instead of
     // osascript, so they are attributed to this app and clicking one opens this window.
     func application(_ app: NSApplication, open urls: [URL]) {
+        // greythr-swipe-uninstall sends this: only the app can take its own entry out of
+        // Login Items, and once the bundle is deleted nothing can.
+        if urls.contains(where: { $0.host == "uninstall" }) {
+            try? agentService.unregister()
+            NSApp.terminate(nil)
+            return
+        }
         for url in urls where url.host == "notify" {
             let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let value = { (name: String) in q.first { $0.name == name }?.value }
