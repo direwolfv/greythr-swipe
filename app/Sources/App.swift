@@ -536,6 +536,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        // One menu bar icon. Copies at different paths (a source build and the Homebrew one, or
+        // the old keg after `brew upgrade`) share a bundle ID but macOS runs them side by side.
+        // The newest launch wins, so an upgraded copy replaces the old one and re-registers.
+        for other in NSRunningApplication.runningApplications(withBundleIdentifier: launchdLabel)
+        where other != NSRunningApplication.current { other.terminate() }
         Appearance.current.apply()
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current()
