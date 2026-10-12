@@ -29,7 +29,7 @@ let logURL = dataDir.appendingPathComponent("logs/checkout.log")
 let launchdLabel = "com.direwolfv.greythr-swipe"
 /// Registered from inside the bundle (Contents/Library/LaunchAgents). A loose plist in
 /// ~/Library/LaunchAgents runs /bin/sh, so macOS shows the background item as "sh"; this way
-/// it is attributed to this app, icon and all, and `brew upgrade` cannot orphan it.
+/// it is attributed to this app, icon and all. Launch re-registers it after `brew upgrade`.
 let agentService = SMAppService.agent(plistName: "\(launchdLabel).plist")
 
 /// Where earlier versions wrote the agent by hand. Removed on launch so the job cannot run twice.
@@ -545,10 +545,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sh("/bin/launchctl", ["bootout", "gui/\(getuid())/\(launchdLabel)"])
             try? FileManager.default.removeItem(at: legacyAgentURL)
         }
-        // Registering an enabled service again is how you re-point it at a moved bundle,
-        // which is what `brew upgrade` does. A failure just leaves automation off, and the
-        // Settings window already says so.
-        if agentService.status != .enabled { try? agentService.register() }
+        // macOS records the agent against the bundle's resolved path, which for Homebrew is
+        // the versioned Cellar folder. `brew upgrade` deletes that folder while status still
+        // reads .enabled, so compare paths and re-register when the bundle has moved.
+        // A failure just leaves automation off, and the Settings window already says so.
+        let here = Bundle.main.bundleURL.resolvingSymlinksInPath().path
+        let moved = UserDefaults.standard.string(forKey: "agentBundlePath") != here
+        if agentService.status != .enabled || moved {
+            if moved { try? agentService.unregister() }
+            if (try? agentService.register()) != nil {
+                UserDefaults.standard.set(here, forKey: "agentBundlePath")
+            }
+        }
         Model.shared.reload()
         showSettings()
     }
