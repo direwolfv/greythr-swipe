@@ -15,7 +15,7 @@ menu bar app (Swift)  ──writes──▶  Keychain + config.json
 
 ## Install
 
-Needs Node 20 or newer, and Brave, Chrome or Edge — the automation drives an installed
+Needs Node 24.22.1 or newer, and Brave, Chrome or Edge — the automation drives an installed
 browser and never downloads one. Install node however you like (nvm, Homebrew, the installer
 from nodejs.org); the formula deliberately does not depend on it, because Homebrew's node
 pulls 16 unbundled libraries of its own. `run.sh` finds yours at run time, and the app says
