@@ -52,7 +52,7 @@ version bump does not need its own bullet if it came along with the change above
 ## Gate
 
 ```sh
-npm test            # decide.test.js — 12 cases, the scheduling logic
+npm test            # decide.test.js — 20 cases, the scheduling logic
 npm run typecheck   # tsc --noEmit over the JSDoc types; no build step, no emit
 ./app/build.sh      # builds app/greytHR.app; needs node on PATH and `npm install` first
 ```

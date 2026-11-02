@@ -68,6 +68,30 @@ cases.push(
     { ...allDay, weekdaysOnly: false }, {}, 'in', '2026-09-19T23:00:00'],
 );
 
+// Days off (holidays, leave), on Monday 2026-09-21 — a day that would otherwise check in.
+const MON = '2026-09-21T23:00:00';
+cases.push(
+  ['single-day holiday blocks', { ...allDay, daysOff: [{ from: '2026-09-21' }] }, {}, 'nothing', MON],
+  ['leave range covering the day blocks',
+    { ...allDay, daysOff: [{ from: '2026-09-18', to: '2026-09-22' }] }, {}, 'nothing', MON],
+  ['range ending the day before does not block',
+    { ...allDay, daysOff: [{ from: '2026-09-14', to: '2026-09-20' }] }, {}, 'in', MON],
+  ['range starting the day after does not block',
+    { ...allDay, daysOff: [{ from: '2026-09-22', to: '2026-09-25' }] }, {}, 'in', MON],
+);
+
+// Late check-in shifts check-out to keep the duration (09:30→18:30 = 9h; in at 10:00 → out 19:00).
+const nine = { ...allDay, checkInAt: '09:30', checkOutAt: '18:30' };
+const lateIn = { lastCheckinDate: TODAY, checkoutDue: '19:00' };
+cases.push(
+  ['late check-in: 18:45 is before the shifted 19:00 → nothing', nine, lateIn, 'nothing', '2026-09-21T18:45:00'],
+  ['late check-in: 19:00 → out', nine, lateIn, 'out', '2026-09-21T19:00:00'],
+  ['checkoutDue from another day is ignored → in (not checked in today)',
+    nine, { lastCheckinDate: '2000-01-01', checkoutDue: '19:00' }, 'in', '2026-09-21T18:45:00'],
+  ['no checkoutDue (older state file) → out at 18:30',
+    nine, { lastCheckinDate: TODAY }, 'out', '2026-09-21T18:45:00'],
+);
+
 let failed = 0;
 for (const [label, config, state, expected, fakeNow] of cases) {
   const got = decide(config, state, fakeNow);

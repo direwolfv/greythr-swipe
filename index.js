@@ -52,6 +52,8 @@ const DEFAULTS = {
   browserPath: null,   // null = auto: the first installed Brave/Chrome/Edge
   geoLat: null,
   geoLon: null,
+  // Holidays and leave: no automatic sign in/out on these dates (inclusive). --in/--out still work.
+  daysOff: /** @type {{ from: string, to?: string, note?: string }[]} */ ([]),
 };
 
 /** @param {string} file @param {any} [fallback] @returns {any} */
@@ -130,6 +132,11 @@ function minutesOfDay(hhmm) {
   return h * 60 + m;
 }
 
+/** @param {number} min @returns {string} */
+function hhmm(min) {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+}
+
 const SYSTEM_BROWSERS = [
   '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -157,6 +164,9 @@ const ACTIONS = {
 function decide() {
   const day = now.getDay(); // 0 = Sunday, 6 = Saturday
   if (cfg.weekdaysOnly && (day === 0 || day === 6)) return null;
+  const date = now.toLocaleString('sv-SE').slice(0, 10); // ISO strings compare as dates
+  const daysOff = /** @type {typeof DEFAULTS.daysOff} */ (cfg.daysOff || []);
+  if (daysOff.some((d) => d.from <= date && date <= (d.to || d.from))) return null;
 
   const nowMin = now.getHours() * 60 + now.getMinutes();
   // ponytail: check-in is tested first, so a Mac woken long after both times signs in on
@@ -164,7 +174,10 @@ function decide() {
   // ever matters.
   for (const name of /** @type {const} */ (['in', 'out'])) {
     const a = ACTIONS[name];
-    if (a.enabled && nowMin >= minutesOfDay(a.at) && state[a.stateKey] !== today()) return name;
+    // Check-out waits for checkoutDue, which recordDone() shifts by a late check-in.
+    const at = name === 'out' && state.lastCheckinDate === today() && state.checkoutDue
+      ? state.checkoutDue : a.at;
+    if (a.enabled && nowMin >= minutesOfDay(at) && state[a.stateKey] !== today()) return name;
   }
   return null;
 }
@@ -181,6 +194,22 @@ if (args.has('--what')) { // what would this tick do? (no login, no browser)
 if (!name) process.exit(0); // silent: keeps the 5-minute ticks out of the log
 
 const action = ACTIONS[name];
+
+// Mark the action done for today. A check-in also fixes when to check out: the configured
+// duration (checkOutAt − checkInAt) after now, never earlier than checkOutAt itself.
+// "Already signed in" lands here too; now is at or after the real sign-in, so the duration holds.
+// ponytail: a due time past 23:59 is never reached that day (no auto check-out); clamp if needed.
+function recordDone() {
+  state[action.stateKey] = today();
+  if (name === 'in') {
+    const out = minutesOfDay(cfg.checkOutAt);
+    const n = new Date();
+    state.checkoutDue = hhmm(Math.max(out,
+      n.getHours() * 60 + n.getMinutes() + out - minutesOfDay(cfg.checkInAt)));
+  }
+  delete state.failures;
+  writeState(state);
+}
 
 // ---------- credentials ----------
 const USERNAME = keychain('greythr-username');
@@ -294,11 +323,7 @@ try {
 
   if (alreadyDone) {
     // Record it so the 5-minute ticks stop retrying for the rest of the day.
-    if (!DRY_RUN) {
-      state[action.stateKey] = today();
-      delete state.failures;
-      writeState(state);
-    }
+    if (!DRY_RUN) recordDone();
     const msg = `Already ${action.past.toLowerCase()} — greytHR is showing "${other.verb}".`;
     log(msg);
     notify('greytHR', `Already ${action.past.toLowerCase()} today`);
@@ -336,9 +361,7 @@ try {
     const shot = path.join(LOG_DIR, `${action.shot}-${today()}.png`);
     await page.screenshot({ path: shot }).catch(() => {});
 
-    state[action.stateKey] = today();
-    delete state.failures;
-    writeState(state);
+    recordDone();
 
     const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     log(`${action.past} at ${t}. Screenshot: ${shot}`);

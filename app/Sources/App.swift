@@ -80,6 +80,7 @@ struct Config: Codable, Equatable {
     var nodePath: String?      // empty = auto-detect, see run.sh
     var geoLat: Double?
     var geoLon: Double?
+    var daysOff: [DayOff] = []
 
     init() {}
 
@@ -96,19 +97,46 @@ struct Config: Codable, Equatable {
         nodePath = try c.decodeIfPresent(String.self, forKey: .nodePath)
         geoLat = try c.decodeIfPresent(Double.self, forKey: .geoLat)
         geoLon = try c.decodeIfPresent(Double.self, forKey: .geoLon)
+        daysOff = try c.decodeIfPresent([DayOff].self, forKey: .daysOff) ?? []
     }
+}
+
+/// A holiday or leave: no automatic sign in/out from `from` to `to`, inclusive.
+/// Dates are "yyyy-MM-dd", the same strings index.js compares.
+struct DayOff: Codable, Equatable, Identifiable {
+    var id = UUID()            // for the list only; not written to config.json
+    var from = todayString()
+    var to = todayString()
+    var note = ""
+
+    enum CodingKeys: String, CodingKey { case from, to, note }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        from = try c.decode(String.self, forKey: .from)
+        to = try c.decodeIfPresent(String.self, forKey: .to) ?? from
+        note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+    }
+
+    func covers(_ day: String) -> Bool { from <= day && day <= to }
 }
 
 struct DayState: Codable {
     var lastCheckinDate: String?
     var lastCheckoutDate: String?
+    var checkoutDue: String?   // index.js shifts check-out by a late check-in
 }
 
-func todayString() -> String {
+let dayFormatter: DateFormatter = {
     let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")   // always Gregorian digits, like index.js
     f.dateFormat = "yyyy-MM-dd"
-    return f.string(from: Date())
-}
+    return f
+}()
+
+func todayString() -> String { dayFormatter.string(from: Date()) }
 
 // "09:00" <-> Date, for DatePicker.
 func date(fromHHMM s: String) -> Date {
@@ -189,7 +217,7 @@ final class Model: ObservableObject {
     @Published var message = ""
     @Published var appearance = Appearance.current
     @Published var showLog = false
-    @Published var tab = 0          // 0 = Schedule, 1 = Runtime, 2 = Account
+    @Published var tab = 0          // 0 = Schedule, 1 = Runtime, 2 = Account, 3 = Days off
 
     // What is currently on disk / in the Keychain. The published values above are what the
     // controls edit, so the difference between the two is "there is something to save".
@@ -207,6 +235,7 @@ final class Model: ObservableObject {
     var configured: Bool { credentialsSet && !config.baseUrl.isEmpty }
     var checkedInToday: Bool { state.lastCheckinDate == todayString() }
     var checkedOutToday: Bool { state.lastCheckoutDate == todayString() }
+    var dayOffToday: DayOff? { config.daysOff.first { $0.covers(todayString()) } }
 
     /// Refresh from disk. Anything the user is part-way through editing is left alone —
     /// this runs on window open, on the menu tick and after every test run, and silently
@@ -306,8 +335,11 @@ struct MenuContent: View {
                                                : "○ Check-in off")
             Text(model.checkedOutToday
                  ? "● Checked out today"
-                 : model.config.checkOutEnabled ? "○ Check out at \(model.config.checkOutAt)"
+                 : model.config.checkOutEnabled ? "○ Check out at \(model.checkedInToday ? model.state.checkoutDue ?? model.config.checkOutAt : model.config.checkOutAt)"
                                                 : "○ Check-out off")
+        }
+        if let off = model.dayOffToday {
+            Text("○ Day off today" + (off.note.isEmpty ? "" : " — \(off.note)"))
         }
         if !model.automationOn { Text("⚠︎ Automation is off") }
 
@@ -429,6 +461,66 @@ struct ScheduleTab: View {
     }
 }
 
+/// Holidays and leave. Each row is a date range; a single day has from == to.
+struct DaysOffTab: View {
+    @ObservedObject var model: Model
+
+    /// "yyyy-MM-dd" <-> Date, for DatePicker. Moving `from` past `to` drags `to` along.
+    private func day(_ off: Binding<DayOff>, _ key: WritableKeyPath<DayOff, String>) -> Binding<Date> {
+        Binding(
+            get: { dayFormatter.date(from: off.wrappedValue[keyPath: key]) ?? Date() },
+            set: {
+                off.wrappedValue[keyPath: key] = dayFormatter.string(from: $0)
+                if off.wrappedValue.to < off.wrappedValue.from { off.wrappedValue.to = off.wrappedValue.from }
+            })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    if model.config.daysOff.isEmpty {
+                        Text("No days off yet.").foregroundStyle(.secondary)
+                    }
+                    ForEach($model.config.daysOff) { $off in
+                        HStack {
+                            DatePicker("", selection: day($off, \.from), displayedComponents: .date)
+                                .labelsHidden()
+                            Text("to")
+                            DatePicker("", selection: day($off, \.to),
+                                       in: (dayFormatter.date(from: off.from) ?? .distantPast)...,
+                                       displayedComponents: .date)
+                                .labelsHidden()
+                            TextField("Holiday or leave", text: $off.note)
+                            Button { model.config.daysOff.removeAll { $0.id == off.id } } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Remove")
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Text("No automatic check-in or check-out on these dates. Check in now / Check out "
+                 + "now from the menu still work.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("Add day off") { model.config.daysOff.append(DayOff()) }
+                Spacer()
+                Button("Save") {
+                    model.config.daysOff.sort { $0.from < $1.from }
+                    model.saveConfig(); model.message = "Saved."
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!model.configDirty)
+            }
+        }
+        .padding(16)
+    }
+}
+
 /// Which binaries the worker drives, and how visibly. Separate from Schedule, which is
 /// only about *when* it runs.
 struct RuntimeTab: View {
@@ -505,6 +597,7 @@ struct SettingsView: View {
             // size, because resizing this window from a SwiftUI state change crashes AppKit.
             TabView(selection: $model.tab) {
                 ScheduleTab(model: model).tabItem { Text("Schedule") }.tag(0)
+                DaysOffTab(model: model).tabItem { Text("Days off") }.tag(3)
                 RuntimeTab(model: model).tabItem { Text("Runtime") }.tag(1)
                 AccountTab(model: model).tabItem { Text("Account") }.tag(2)
             }

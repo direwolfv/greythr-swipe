@@ -42,7 +42,7 @@ The symlink is load-bearing: `SMAppService` registers the timer only for an app 
 under `/Applications`, and Homebrew cannot create the link from its post-install sandbox.
 
 First launch installs the LaunchAgent. Then **Settings…** → **Account** for the greytHR URL,
-username and password, and **Schedule** for your times.
+username and password, **Schedule** for your times, and **Days off** for holidays and leave.
 
 When macOS asks "security wants to access …", click **Always Allow** — otherwise the scheduled
 background runs can't read the password.
@@ -54,12 +54,17 @@ background runs can't read the password.
 launchd runs `index.js` every five minutes. Each tick exits immediately unless:
 
 - it's a weekday (unless *Weekdays only* is off), **and**
+- the date isn't on the **Days off** tab (holidays and leave), **and**
 - the time is at or past your check-in or check-out time, **and**
 - that action hasn't already happened today
 
 If the Mac is asleep at 09:00, the check-in happens on the first tick after it wakes. On failure
 it retries every five minutes, notifying on the first failure and every fourth after that, and
 leaves a screenshot in the log directory.
+
+A late check-in moves the check-out to keep the full day: with 09:30 → 18:30 (9 hours), a
+check-in at 10:00 checks out at 19:00. Check-out is never earlier than the time you set, and if
+the moved time falls past midnight there is no automatic check-out that day.
 
 ## Where things live
 
