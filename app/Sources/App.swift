@@ -355,6 +355,22 @@ struct MenuContent: View {
                 Label($0.label, systemImage: $0.symbol).tag($0)
             }
         }
+        Button("About greytHR") {
+            // Standard panel: name, icon, version and copyright come from Info.plist.
+            let small = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+            let center = NSMutableParagraphStyle()
+            center.alignment = .center
+            let credits = NSMutableAttributedString(
+                string: "github.com/direwolfv/greythr-swipe",
+                attributes: [.link: URL(string: "https://github.com/direwolfv/greythr-swipe")!,
+                             .font: small, .paragraphStyle: center])
+            credits.append(NSAttributedString(
+                string: "\n\nPersonal tool. Not affiliated with or endorsed by greytHR.",
+                attributes: [.font: small, .foregroundColor: NSColor.secondaryLabelColor,
+                             .paragraphStyle: center]))
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+        }
         Button("Settings…") { AppDelegate.shared.showSettings() }
         Button("Quit") { NSApp.terminate(nil) }
     }

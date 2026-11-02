@@ -27,7 +27,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST_EOF
   <key>CFBundleExecutable</key><string>greytHR</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>greytHR</string>
-  <key>CFBundleShortVersionString</key><string>1.4.0</string>
+  <key>CFBundleShortVersionString</key><string>1.4.1</string>
+  <key>NSHumanReadableCopyright</key><string>© 2026 direwolfv. ISC License.</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>CFBundleURLTypes</key>
